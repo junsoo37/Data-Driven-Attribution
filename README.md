@@ -4,4 +4,4 @@
   * Shapley Value Attribution Model 
   * Markov Chain Attribution Model
 
-* By using these attribution models, a marketing media mix can be implemented.
+* By using these attribution models, we can implement marketing media-mix modeling
