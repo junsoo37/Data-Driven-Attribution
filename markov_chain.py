@@ -4,6 +4,10 @@ import numpy as np
 
 class MarkovChainAttribution:
     def __init__(self, data, null_exists):
+        """
+        :param data: a dataframe with path, total_conversions columns
+        :param null_exists: whether data's path only have conversion or have conversion and null
+        """
         self.data = data
         self.null_exists = null_exists
 
@@ -18,6 +22,13 @@ class MarkovChainAttribution:
         return output_str
 
     def markov_chain_preprocessing(self):
+        """ Markov chain attribution model have single path problem. While calculating removal_effects, single path lose
+        its own conversions to other channels. Assume single path 'start -> A -> A -> Conversion : 11' In markov chain
+        attribution, A cannot take whole 11 conversions. Finally single channel's are undervalued and attribution distorted.
+        Therefore, split data to single, multi channel. And run markov chain model for only multichannel data.
+        :return: singlechannel data, multichannel data
+        """
+
         self.data['Unique Path Num'] = self.data['path'].apply(lambda x: len(list(set(x))))
         singlechnl_df = self.data.loc[self.data['Unique Path Num'] == 1]
         singlechnl_df['path'] = singlechnl_df['path'].apply(lambda x: x[0])
@@ -39,11 +50,16 @@ class MarkovChainAttribution:
         return singlechnl_df, multichnl_df
 
     def cal_removal_effect(self, df, cvr):
+        """ Calculate removal effect. Removal Effect(i) = {1-P(S without i)/P(S)}*100 (%)
+        In this code, solve Loop Issue by using markov matrix's stability. Due to markov matrix's stability, we can
+        assume steady state.
+        :param df: channel data
+        :param cvr: conversion rate
+        :return:
+        """
         removal_effect_res = dict()
         channels = df.drop(['conv', 'null', 'start'], axis=1).columns
-
         for channel in channels:
-            removal_cvr = list()
             removal_df = df.drop(channel, axis=1)
             removal_df = removal_df.drop(channel, axis=0)
             for col in removal_df.columns:
@@ -59,8 +75,9 @@ class MarkovChainAttribution:
             Q = removal_df.drop(['null', 'conv'], axis=1)
             Q = Q.drop(['null', 'conv'], axis=0)
             t = len(Q.columns)
+            # Markov Matrix's absolute stability -> steady state
             N = np.linalg.inv(np.identity(t) - np.asarray(Q))
-            M = np.dot(N, np.asarray(R))                    # Markov Matrix's absolute stability -> steady state
+            M = np.dot(N, np.asarray(R))
 
             removal_cvr = pd.DataFrame(M, index=R.index)[[1]].loc['start'].values[0]
             removal_effect = 1.0 - removal_cvr / cvr
@@ -70,6 +87,10 @@ class MarkovChainAttribution:
 
 
     def cal_markov_chain_attribution(self, multichnl_df):
+        """ Calculate markov chain attribution
+        :param multichnl_df: multichannel path data
+        :return: markov chain attribution data
+        """
         paths = np.array(multichnl_df).tolist()
         sublist = []
         total_paths = 0
@@ -91,7 +112,6 @@ class MarkovChainAttribution:
                 conv_dict[path[-2]] += 1
 
         transitionStates = {}
-        cvr = total_conversions / total_paths
         for x in unique_touch_list:
             for y in unique_touch_list:
                 transitionStates[x + ">" + y] = 0
@@ -176,18 +196,13 @@ class MarkovChainAttribution:
         conv_dict.pop('null', None)
         conv_dict.pop('start', None)
 
-        return {'markov_conversions': markov_conversions,
-                'last_touch_conversions': conv_dict,
-                'removal_effects': removal_effects,
-                'base_cvr': cvr,
-                'transition_matrix': test_df,
-                'absorption_matrix': M }
+        return markov_conversions
+
 
     def run(self):
         singlechnl_df, multichnl_df = self.markov_chain_preprocessing()
         multichnl_markov_res = self.cal_markov_chain_attribution(multichnl_df)
-        multichnl_markov_attr = multichnl_markov_res['markov_conversions']
-        multichnl_attr_df = pd.DataFrame.from_dict(multichnl_markov_attr, orient='index').reset_index()
+        multichnl_attr_df = pd.DataFrame.from_dict(multichnl_markov_res, orient='index').reset_index()
         markov_chain_attribution = pd.concat([singlechnl_df, multichnl_attr_df], sort=False)
         markov_chain_attribution = markov_chain_attribution.groupby('path')['total_conversions'].sum().to_frame()
         markov_chain_attribution['total_conversions'] = markov_chain_attribution['total_conversions'].map(int)
