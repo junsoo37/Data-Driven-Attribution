@@ -5,6 +5,11 @@ from collections import defaultdict
 
 class ShapleyValueModel:
     def __init__(self, data):
+        """
+        :param data: a dataframe with path, total_conversions columns
+        Caution! Shapley Value Attribution Model's time-complexity is high. Its' time-complexity is directly affected
+        by num of unique channel.
+        """
         self.data = data
 
     @staticmethod
@@ -31,6 +36,11 @@ class ShapleyValueModel:
         return list(map(",".join, map(sorted, sub_list)))
 
     def value_function(self, channel_set, channel_value_info):
+        """ Calculate value of channel set
+        :param channel_set: channels combination
+        :param channel_value_info: path's total_conversion
+        :return: value of channels combination
+        """
         channel_subsets = ShapleyValueModel.subsets(channel_set)
         channel_val = 0
         for subset in channel_subsets:
@@ -40,6 +50,10 @@ class ShapleyValueModel:
         return channel_val
 
     def shapley_value_preprocessing(self):
+        """ Shapley Value doesn't consider order of channel. It just consider set of channels.
+        So preprocess data to set of channels. Also format path data to string like A > B > C.
+        :return:
+        """
         self.data['path'] = self.data['path'].apply(lambda x: sorted(set(x)))
         self.data['path'] = self.data['path'].map(tuple)
         self.data = self.data.groupby('path')['total_conversions'].sum().to_frame().reset_index()
@@ -48,6 +62,9 @@ class ShapleyValueModel:
         return
 
     def cal_shapley_value(self):
+        """ Calculate Shapley Value for each channel.
+        :return:
+        """
         channel_value_info = self.data.set_index('path').to_dict()['total_conversions']
         self.data['channels'] = self.data['path'].apply(lambda x: x.split(","))
         channels = list(itertools.chain.from_iterable(list(self.data['channels'])))
